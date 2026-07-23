@@ -83,6 +83,12 @@ export default function Home() {
   const [closetOpen, setClosetOpen] = useState(false);
   const [unbox, setUnbox] = useState<{ id: string; name: string; rarity: Rarity } | null>(null);
 
+  // Hydration guard: the persisted store rehydrates from localStorage only on
+  // the client, so the first client render must match the static HTML (initial
+  // state). We render a loading screen until mounted, then paint the save.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
   useTimeSync();
 
   // Global keystroke listener — only counts while working.
@@ -122,6 +128,18 @@ export default function Home() {
     const result = openLootBox();
     if (result) setUnbox(result);
   };
+
+  // Before hydration, render a minimalist boot screen so Next.js' static HTML
+  // and the first client render agree (prevents a hydration mismatch).
+  if (!mounted) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-neutral-950 text-neutral-600">
+        <span className="animate-pulse font-mono text-sm tracking-[0.4em]">
+          Booting OS…
+        </span>
+      </main>
+    );
+  }
 
   return (
     <main
