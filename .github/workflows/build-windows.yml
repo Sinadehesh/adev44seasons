@@ -1,4 +1,4 @@
-name: Build Windows
+name: Build Desktop
 
 on:
   push:
@@ -6,7 +6,13 @@ on:
 
 jobs:
   build:
-    runs-on: windows-latest
+    strategy:
+      # Don't cancel the other OS if one fails.
+      fail-fast: false
+      matrix:
+        platform: [windows-latest, macos-latest]
+
+    runs-on: ${{ matrix.platform }}
 
     steps:
       - name: Checkout repository
@@ -29,19 +35,32 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      # tauri-action runs the frontend build (beforeBuildCommand) and compiles
+      # the Rust app for the host OS, emitting the platform bundles.
       - name: Build Tauri app
-        run: npm run tauri build
+        uses: tauri-apps/tauri-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # The compiled app lands in src-tauri/target/release:
-      #   - adev44seasons.exe            (standalone executable)
-      #   - bundle/msi/*.msi             (MSI installer)
-      #   - bundle/nsis/*-setup.exe      (NSIS installer)
-      - name: Upload Windows build
+      # Windows: standalone .exe + MSI/NSIS installers.
+      - name: Upload Windows artifacts
+        if: matrix.platform == 'windows-latest'
         uses: actions/upload-artifact@v4
         with:
           name: adev44seasons-windows
           path: |
-            src-tauri/target/release/adev44seasons.exe
+            src-tauri/target/release/*.exe
             src-tauri/target/release/bundle/msi/*.msi
             src-tauri/target/release/bundle/nsis/*.exe
+          if-no-files-found: error
+
+      # macOS: the .app bundle and the .dmg disk image.
+      - name: Upload macOS artifacts
+        if: matrix.platform == 'macos-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: adev44seasons-macos
+          path: |
+            src-tauri/target/release/bundle/dmg/*.dmg
+            src-tauri/target/release/bundle/macos/*.app
           if-no-files-found: error
