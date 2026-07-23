@@ -7,7 +7,7 @@ import {
   isHat,
   isShirt,
   ITEM_NAMES,
-  LOOT_BOX_COST,
+  LOOT_BOX_TRACTION_COST,
   type Rarity,
   type TimeOfDay,
 } from '../src/store/useGameStore';
@@ -56,6 +56,11 @@ function formatRemaining(ms: number): string {
   return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
+const CURRENCY = new Intl.NumberFormat('en-US', {
+  style: 'currency',
+  currency: 'USD',
+});
+
 export default function Home() {
   const traction = useGameStore((s) => s.traction);
   const capital = useGameStore((s) => s.capital);
@@ -68,9 +73,9 @@ export default function Home() {
   const matrixThemeUnlocked = useGameStore((s) => s.matrixThemeUnlocked);
   const isMatrixActive = useGameStore((s) => s.isMatrixActive);
 
-  const incrementTraction = useGameStore((s) => s.incrementTraction);
+  const addTraction = useGameStore((s) => s.addTraction);
   const openLootBox = useGameStore((s) => s.openLootBox);
-  const addCapital = useGameStore((s) => s.addCapital);
+  const devAddTraction = useGameStore((s) => s.devAddTraction);
   const equipHat = useGameStore((s) => s.equipHat);
   const equipShirt = useGameStore((s) => s.equipShirt);
   const toggleMatrix = useGameStore((s) => s.toggleMatrix);
@@ -84,13 +89,13 @@ export default function Home() {
   useEffect(() => {
     const unlistenPromise = listen('keystroke_detected', () => {
       if (useGameStore.getState().gameState === 'working') {
-        incrementTraction();
+        addTraction();
       }
     });
     return () => {
       unlistenPromise.then((unlisten) => unlisten());
     };
-  }, [incrementTraction]);
+  }, [addTraction]);
 
   // Tick once a second while resting so the countdown updates.
   const [, tick] = useReducer((x: number) => x + 1, 0);
@@ -103,6 +108,15 @@ export default function Home() {
   const theme = THEME[timeOfDay];
   const hats = unlockedCosmetics.filter(isHat);
   const shirts = unlockedCosmetics.filter(isShirt);
+  const canOpenBox = traction >= LOOT_BOX_TRACTION_COST;
+
+  // $0 → dim gray, positive → green, negative → harsh red (debt).
+  const capitalColor =
+    capital === 0
+      ? 'text-neutral-500'
+      : capital > 0
+        ? 'text-emerald-500'
+        : 'text-red-500 font-bold';
 
   const handleOpenBox = () => {
     const result = openLootBox();
@@ -123,9 +137,21 @@ export default function Home() {
 
       <FounderIcon />
 
+      {/* Capital — the exponential, volatile success metric. */}
+      <div className="flex flex-col items-center gap-0.5">
+        <span
+          className={`font-mono text-4xl font-semibold tabular-nums leading-none transition-colors duration-300 ${capitalColor}`}
+        >
+          {CURRENCY.format(capital)}
+        </span>
+        <span className={`text-[0.65rem] uppercase tracking-[0.35em] ${theme.muted}`}>
+          capital
+        </span>
+      </div>
+
       {/* Traction */}
       <div className="flex flex-col items-center gap-1">
-        <span className="font-mono text-7xl font-semibold tabular-nums leading-none">
+        <span className="font-mono text-6xl font-semibold tabular-nums leading-none">
           {traction}
         </span>
         <span className={`text-xs uppercase tracking-[0.35em] ${theme.muted}`}>traction</span>
@@ -133,16 +159,13 @@ export default function Home() {
 
       {/* Controls */}
       <div className="flex flex-wrap items-center justify-center gap-3">
-        <span className={`rounded-full px-3 py-1 text-sm font-medium ${theme.panel}`}>
-          {capital} <span className={theme.muted}>capital</span>
-        </span>
         <button
           type="button"
           onClick={handleOpenBox}
-          disabled={capital < LOOT_BOX_COST}
+          disabled={!canOpenBox}
           className={`rounded-full px-4 py-1.5 text-sm font-semibold transition-opacity ${theme.panel} enabled:hover:opacity-80 disabled:opacity-40`}
         >
-          Open Box · {LOOT_BOX_COST}
+          Open Box · {LOOT_BOX_TRACTION_COST.toLocaleString()} traction
         </button>
         <button
           type="button"
@@ -151,13 +174,14 @@ export default function Home() {
         >
           Closet
         </button>
-        {/* Dev helper: earn capital without the Phase 4 economy loop. */}
+        {/* Dev helper: bulk traction so the gacha + revenue curve are testable
+            without physically typing 100k keystrokes. */}
         <button
           type="button"
-          onClick={() => addCapital(50)}
+          onClick={() => devAddTraction(10_000)}
           className={`rounded-full px-3 py-1.5 text-xs ${theme.panel} hover:opacity-80`}
         >
-          +50
+          +10k traction
         </button>
       </div>
 

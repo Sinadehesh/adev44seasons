@@ -11,11 +11,26 @@ export interface PullResult {
 }
 
 // ---------------------------------------------------------------------------
-// Gacha configuration
+// Economy configuration (Phase 4)
 // ---------------------------------------------------------------------------
 
-export const LOOT_BOX_COST = 50;
+/** Gacha boxes now cost Traction (keystrokes), not Capital. */
+export const LOOT_BOX_TRACTION_COST = 1_000;
 export const REST_DURATION_MS = 10 * 60 * 1000; // 10 minutes
+
+// The Startup Revenue Curve: flat $0 until the threshold, then exponential.
+export const REVENUE_THRESHOLD = 100_000;
+export const REVENUE_BASE = 0.01;
+export const REVENUE_GROWTH = 1.00005;
+
+// The Black Swan: rare, catastrophic loss that can drive Capital deep negative.
+export const BLACK_SWAN_CHANCE = 1 / 25_000;
+const BLACK_SWAN_MIN = 100_000;
+const BLACK_SWAN_MAX = 1_000_000;
+
+// ---------------------------------------------------------------------------
+// Cosmetics / gacha tables
+// ---------------------------------------------------------------------------
 
 export const HATS = ['cap', 'beanie'] as const;
 export const SHIRTS = ['black-tee', 'hoodie'] as const;
@@ -49,7 +64,11 @@ let restTimer: ReturnType<typeof setTimeout> | null = null;
 // ---------------------------------------------------------------------------
 
 export interface GameStore {
+  /** Spendable traction (drained by gacha pulls). */
   traction: number;
+  /** Permanent record of every keystroke — drives the revenue curve. */
+  lifetimeTraction: number;
+  /** Exponential, volatile success metric (money). Can go negative. */
   capital: number;
   gameState: GameState;
   timeOfDay: TimeOfDay;
@@ -67,8 +86,7 @@ export interface GameStore {
   restEndsAt: number | null;
 
   // Core actions
-  incrementTraction: (by?: number) => void;
-  addCapital: (amount: number) => void;
+  addTraction: () => void;
   setGameState: (gameState: GameState) => void;
   setTimeOfDay: (timeOfDay: TimeOfDay) => void;
 
@@ -83,12 +101,16 @@ export interface GameStore {
   setMatrixActive: (active: boolean) => void;
   toggleMatrix: () => void;
 
+  // Dev helper (no economy side effects) so the gacha / curve are testable.
+  devAddTraction: (amount: number) => void;
+
   reset: () => void;
 }
 
 const INITIAL_STATE = {
   traction: 0,
-  capital: 150, // dev starting balance so the loot box is immediately testable
+  lifetimeTraction: 0,
+  capital: 0,
   gameState: 'working' as GameState,
   timeOfDay: 'day' as TimeOfDay,
   equippedHat: null as string | null,
@@ -103,10 +125,28 @@ const INITIAL_STATE = {
 export const useGameStore = create<GameStore>((set, get) => ({
   ...INITIAL_STATE,
 
-  incrementTraction: (by = 1) =>
-    set((state) => ({ traction: state.traction + by })),
+  // Runs once per keystroke. Kept to a single `set` with a couple of cheap
+  // math ops (one Math.pow + one Math.random) so it won't stutter under a
+  // fast typist.
+  addTraction: () =>
+    set((state) => {
+      const traction = state.traction + 1;
+      const lifetimeTraction = state.lifetimeTraction + 1;
+      let capital = state.capital;
 
-  addCapital: (amount) => set((state) => ({ capital: state.capital + amount })),
+      // The Hockey Stick: exponential revenue once past the threshold.
+      if (lifetimeTraction >= REVENUE_THRESHOLD) {
+        capital +=
+          REVENUE_BASE * Math.pow(REVENUE_GROWTH, lifetimeTraction - REVENUE_THRESHOLD);
+      }
+
+      // The Black Swan: 1-in-25,000 market crash.
+      if (Math.random() < BLACK_SWAN_CHANCE) {
+        capital -= BLACK_SWAN_MIN + Math.random() * (BLACK_SWAN_MAX - BLACK_SWAN_MIN);
+      }
+
+      return { traction, lifetimeTraction, capital };
+    }),
 
   setGameState: (gameState) => set({ gameState }),
 
@@ -117,11 +157,11 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const free = options?.free ?? false;
     const state = get();
 
-    if (!free && state.capital < LOOT_BOX_COST) {
-      return null; // can't afford
+    if (!free && state.traction < LOOT_BOX_TRACTION_COST) {
+      return null; // not enough traction
     }
     if (!free) {
-      set({ capital: state.capital - LOOT_BOX_COST });
+      set({ traction: state.traction - LOOT_BOX_TRACTION_COST });
     }
 
     const isDay = state.timeOfDay === 'day';
@@ -191,6 +231,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   toggleMatrix: () =>
     set((s) => (s.matrixThemeUnlocked ? { isMatrixActive: !s.isMatrixActive } : s)),
+
+  devAddTraction: (amount) =>
+    set((state) => ({
+      traction: state.traction + amount,
+      lifetimeTraction: state.lifetimeTraction + amount,
+    })),
 
   reset: () => {
     if (restTimer) {
