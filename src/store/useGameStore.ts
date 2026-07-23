@@ -24,6 +24,24 @@ export const REVENUE_THRESHOLD = 100_000;
 export const REVENUE_BASE = 0.01;
 export const REVENUE_GROWTH = 1.00005;
 
+// Location tiers: each HQ upgrade multiplies exponential revenue.
+export const LOCATIONS: Record<
+  number,
+  { name: string; revenueMultiplier: number }
+> = {
+  1: { name: 'Garage', revenueMultiplier: 1 },
+  2: { name: 'Co-working Space', revenueMultiplier: 2 },
+  3: { name: 'Penthouse', revenueMultiplier: 5 },
+};
+
+/** Capital cost to advance FROM the keyed tier to the next one. */
+export const UPGRADE_COST: Record<number, number> = {
+  1: 500_000,
+  2: 10_000_000,
+};
+
+export const MAX_LOCATION_TIER = 3;
+
 // The Black Swan: a rare crash whose damage scales with success — a random
 // 40–120% of current Capital, or a flat $50k floor, whichever is larger.
 export const BLACK_SWAN_CHANCE = 1 / 25_000;
@@ -73,6 +91,8 @@ export interface GameStore {
   lifetimeTraction: number;
   /** Exponential, volatile success metric (money). Can go negative. */
   capital: number;
+  /** HQ tier (1..3) — multiplies revenue and drives the UI theme. */
+  locationTier: number;
   gameState: GameState;
   timeOfDay: TimeOfDay;
 
@@ -92,6 +112,7 @@ export interface GameStore {
   addTraction: () => void;
   setGameState: (gameState: GameState) => void;
   setTimeOfDay: (timeOfDay: TimeOfDay) => void;
+  upgradeLocation: () => void;
 
   // Gacha / rest
   openLootBox: (options?: { free?: boolean }) => PullResult | null;
@@ -114,6 +135,7 @@ const INITIAL_STATE = {
   traction: 0,
   lifetimeTraction: 0,
   capital: 0,
+  locationTier: 1,
   gameState: 'working' as GameState,
   timeOfDay: 'day' as TimeOfDay,
   equippedHat: null as string | null,
@@ -139,10 +161,14 @@ export const useGameStore = create<GameStore>()(
           const lifetimeTraction = state.lifetimeTraction + 1;
           let capital = state.capital;
 
-          // The Hockey Stick: exponential revenue once past the threshold.
+          // The Hockey Stick: exponential revenue once past the threshold,
+          // scaled by the current HQ tier's multiplier (1x / 2x / 5x).
           if (lifetimeTraction >= REVENUE_THRESHOLD) {
+            const multiplier = LOCATIONS[state.locationTier]?.revenueMultiplier ?? 1;
             capital +=
-              REVENUE_BASE * Math.pow(REVENUE_GROWTH, lifetimeTraction - REVENUE_THRESHOLD);
+              multiplier *
+              REVENUE_BASE *
+              Math.pow(REVENUE_GROWTH, lifetimeTraction - REVENUE_THRESHOLD);
           }
 
           // The Black Swan: 1-in-25,000 market crash, scaled to success.
@@ -161,6 +187,15 @@ export const useGameStore = create<GameStore>()(
 
       setTimeOfDay: (timeOfDay) =>
         set((state) => (state.timeOfDay === timeOfDay ? state : { timeOfDay })),
+
+      upgradeLocation: () =>
+        set((state) => {
+          const cost = UPGRADE_COST[state.locationTier];
+          if (cost === undefined || state.capital < cost) {
+            return state; // maxed out or can't afford
+          }
+          return { capital: state.capital - cost, locationTier: state.locationTier + 1 };
+        }),
 
       openLootBox: (options) => {
         const free = options?.free ?? false;
@@ -266,6 +301,7 @@ export const useGameStore = create<GameStore>()(
         traction: state.traction,
         lifetimeTraction: state.lifetimeTraction,
         capital: state.capital,
+        locationTier: state.locationTier,
         equippedHat: state.equippedHat,
         equippedShirt: state.equippedShirt,
         unlockedCosmetics: state.unlockedCosmetics,

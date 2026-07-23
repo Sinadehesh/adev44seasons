@@ -8,37 +8,34 @@ import {
   isShirt,
   ITEM_NAMES,
   LOOT_BOX_TRACTION_COST,
+  LOCATIONS,
+  UPGRADE_COST,
+  MAX_LOCATION_TIER,
   type Rarity,
   type TimeOfDay,
 } from '../src/store/useGameStore';
 import { useTimeSync } from '../src/hooks/useTimeSync';
 import FounderIcon from '../src/components/FounderIcon';
 
-// Per-time-of-day palette (Phase 2). Slow ambient fade between them.
-const THEME: Record<
-  TimeOfDay,
-  { bg: string; text: string; muted: string; panel: string; label: string }
-> = {
-  day: {
-    bg: 'bg-amber-100',
-    text: 'text-amber-950',
-    muted: 'text-amber-700',
-    panel: 'bg-amber-950/10',
-    label: 'Day',
+// Theme palette nested by location tier, then time of day (Phase 2 + 6).
+// `dark` drives the derived muted/panel overlays so they read on any bg.
+type ThemeEntry = { bg: string; text: string; label: string; dark: boolean };
+
+const THEME_MAP: Record<number, Record<TimeOfDay, ThemeEntry>> = {
+  1: {
+    day: { bg: 'bg-amber-100', text: 'text-amber-900', label: 'Day', dark: false },
+    afternoon: { bg: 'bg-orange-200', text: 'text-orange-950', label: 'Afternoon', dark: false },
+    night: { bg: 'bg-neutral-950', text: 'text-neutral-200', label: 'Night', dark: true },
   },
-  afternoon: {
-    bg: 'bg-orange-500',
-    text: 'text-orange-50',
-    muted: 'text-orange-100',
-    panel: 'bg-black/15',
-    label: 'Afternoon',
+  2: {
+    day: { bg: 'bg-sky-100', text: 'text-sky-900', label: 'Day', dark: false },
+    afternoon: { bg: 'bg-indigo-200', text: 'text-indigo-950', label: 'Afternoon', dark: false },
+    night: { bg: 'bg-slate-900', text: 'text-slate-200', label: 'Night', dark: true },
   },
-  night: {
-    bg: 'bg-neutral-950',
-    text: 'text-neutral-100',
-    muted: 'text-neutral-500',
-    panel: 'bg-white/5',
-    label: 'Night',
+  3: {
+    day: { bg: 'bg-zinc-100', text: 'text-zinc-900', label: 'Day', dark: false },
+    afternoon: { bg: 'bg-gray-300', text: 'text-gray-900', label: 'Afternoon', dark: false },
+    night: { bg: 'bg-black', text: 'text-zinc-400', label: 'Night', dark: true },
   },
 };
 
@@ -61,9 +58,17 @@ const CURRENCY = new Intl.NumberFormat('en-US', {
   currency: 'USD',
 });
 
+// Whole-dollar variant for upgrade costs (e.g. "$500,000").
+const CURRENCY0 = new Intl.NumberFormat('en-US', {
+  style: 'currency',
+  currency: 'USD',
+  maximumFractionDigits: 0,
+});
+
 export default function Home() {
   const traction = useGameStore((s) => s.traction);
   const capital = useGameStore((s) => s.capital);
+  const locationTier = useGameStore((s) => s.locationTier);
   const timeOfDay = useGameStore((s) => s.timeOfDay);
   const gameState = useGameStore((s) => s.gameState);
   const restEndsAt = useGameStore((s) => s.restEndsAt);
@@ -76,6 +81,7 @@ export default function Home() {
   const addTraction = useGameStore((s) => s.addTraction);
   const openLootBox = useGameStore((s) => s.openLootBox);
   const devAddTraction = useGameStore((s) => s.devAddTraction);
+  const upgradeLocation = useGameStore((s) => s.upgradeLocation);
   const equipHat = useGameStore((s) => s.equipHat);
   const equipShirt = useGameStore((s) => s.equipShirt);
   const toggleMatrix = useGameStore((s) => s.toggleMatrix);
@@ -111,10 +117,18 @@ export default function Home() {
     return () => clearInterval(id);
   }, [restEndsAt]);
 
-  const theme = THEME[timeOfDay];
+  const theme = (THEME_MAP[locationTier] ?? THEME_MAP[1])[timeOfDay];
+  const muted = theme.dark ? 'text-white/50' : 'text-black/50';
+  const panel = theme.dark ? 'bg-white/10' : 'bg-black/10';
   const hats = unlockedCosmetics.filter(isHat);
   const shirts = unlockedCosmetics.filter(isShirt);
   const canOpenBox = traction >= LOOT_BOX_TRACTION_COST;
+
+  const location = LOCATIONS[locationTier];
+  const isMaxTier = locationTier >= MAX_LOCATION_TIER;
+  const upgradeCost = UPGRADE_COST[locationTier];
+  const nextLocation = LOCATIONS[locationTier + 1];
+  const canUpgrade = !isMaxTier && upgradeCost !== undefined && capital >= upgradeCost;
 
   // $0 → dim gray, positive → green, negative → harsh red (debt).
   const capitalColor =
@@ -145,9 +159,9 @@ export default function Home() {
     <main
       className={`relative flex min-h-screen select-none flex-col items-center justify-center gap-6 px-6 transition-colors duration-1000 ${theme.bg} ${theme.text}`}
     >
-      {/* Environment label */}
-      <span className={`text-[0.7rem] uppercase tracking-[0.35em] ${theme.muted}`}>
-        {theme.label}
+      {/* Location + environment label */}
+      <span className={`text-[0.7rem] uppercase tracking-[0.35em] ${muted}`}>
+        {location.name} · {theme.label}
         {gameState === 'resting' && restEndsAt != null && (
           <> · resting {formatRemaining(restEndsAt - Date.now())}</>
         )}
@@ -162,7 +176,7 @@ export default function Home() {
         >
           {CURRENCY.format(capital)}
         </span>
-        <span className={`text-[0.65rem] uppercase tracking-[0.35em] ${theme.muted}`}>
+        <span className={`text-[0.65rem] uppercase tracking-[0.35em] ${muted}`}>
           capital
         </span>
       </div>
@@ -172,7 +186,7 @@ export default function Home() {
         <span className="font-mono text-6xl font-semibold tabular-nums leading-none">
           {traction}
         </span>
-        <span className={`text-xs uppercase tracking-[0.35em] ${theme.muted}`}>traction</span>
+        <span className={`text-xs uppercase tracking-[0.35em] ${muted}`}>traction</span>
       </div>
 
       {/* Controls */}
@@ -181,23 +195,39 @@ export default function Home() {
           type="button"
           onClick={handleOpenBox}
           disabled={!canOpenBox}
-          className={`rounded-full px-4 py-1.5 text-sm font-semibold transition-opacity ${theme.panel} enabled:hover:opacity-80 disabled:opacity-40`}
+          className={`rounded-full px-4 py-1.5 text-sm font-semibold transition-opacity ${panel} enabled:hover:opacity-80 disabled:opacity-40`}
         >
           Open Box · {LOOT_BOX_TRACTION_COST.toLocaleString()} traction
         </button>
         <button
           type="button"
           onClick={() => setClosetOpen((v) => !v)}
-          className={`rounded-full px-4 py-1.5 text-sm font-semibold transition-opacity ${theme.panel} hover:opacity-80`}
+          className={`rounded-full px-4 py-1.5 text-sm font-semibold transition-opacity ${panel} hover:opacity-80`}
         >
           Closet
         </button>
+        {isMaxTier ? (
+          <span
+            className={`rounded-full px-4 py-1.5 text-sm font-semibold ${panel} opacity-70`}
+          >
+            Max Tier Reached
+          </span>
+        ) : (
+          <button
+            type="button"
+            onClick={upgradeLocation}
+            disabled={!canUpgrade}
+            className={`rounded-full px-4 py-1.5 text-sm font-semibold transition-opacity ${panel} enabled:hover:opacity-80 disabled:opacity-40`}
+          >
+            Upgrade to {nextLocation.name}: {CURRENCY0.format(upgradeCost)}
+          </button>
+        )}
         {/* Dev helper: bulk traction so the gacha + revenue curve are testable
             without physically typing 100k keystrokes. */}
         <button
           type="button"
           onClick={() => devAddTraction(10_000)}
-          className={`rounded-full px-3 py-1.5 text-xs ${theme.panel} hover:opacity-80`}
+          className={`rounded-full px-3 py-1.5 text-xs ${panel} hover:opacity-80`}
         >
           +10k traction
         </button>
@@ -205,24 +235,24 @@ export default function Home() {
 
       {/* Closet */}
       {closetOpen && (
-        <div className={`w-full max-w-sm rounded-2xl p-4 text-sm ${theme.panel}`}>
+        <div className={`w-full max-w-sm rounded-2xl p-4 text-sm ${panel}`}>
           <ClosetSection
             title="Hats"
             items={hats}
             equipped={equippedHat}
             onEquip={equipHat}
-            muted={theme.muted}
+            muted={muted}
           />
           <ClosetSection
             title="Shirts"
             items={shirts}
             equipped={equippedShirt}
             onEquip={equipShirt}
-            muted={theme.muted}
+            muted={muted}
           />
           {matrixThemeUnlocked && (
             <div className="mt-3 flex items-center justify-between">
-              <span className={theme.muted}>Matrix theme</span>
+              <span className={muted}>Matrix theme</span>
               <button
                 type="button"
                 onClick={toggleMatrix}
@@ -233,7 +263,7 @@ export default function Home() {
             </div>
           )}
           {hats.length === 0 && shirts.length === 0 && !matrixThemeUnlocked && (
-            <p className={`text-xs ${theme.muted}`}>
+            <p className={`text-xs ${muted}`}>
               No cosmetics yet — open some boxes.
             </p>
           )}
