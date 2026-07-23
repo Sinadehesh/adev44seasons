@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Core permissions for the main window, including the event IPC used to receive keystroke signals from the Rust backend.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}
