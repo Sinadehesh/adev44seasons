@@ -37,8 +37,10 @@ jobs:
 
       # tauri-action runs the frontend build (beforeBuildCommand) and compiles
       # the Rust app for the host OS, emitting the platform bundles.
+      # NOTE: tauri-action stays on major tag v0 (there is no v2 tag), even
+      # though it builds Tauri v2 apps.
       - name: Build Tauri app
-        uses: tauri-apps/tauri-action@v2
+        uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
